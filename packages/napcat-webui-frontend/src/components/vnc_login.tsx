@@ -7,7 +7,7 @@ import { motion } from 'motion/react';
 
 export default function VNCLogin () {
   const containerRef = useRef<HTMLDivElement>(null);
-  const rfbRef = useRef<typeof RFB | null>(null);
+  const rfbRef = useRef<RFB | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [status, setStatus] = useState('');
@@ -23,18 +23,19 @@ export default function VNCLogin () {
       const host = window.location.host;
       const url = `${protocol}//${host}/vnc/ws`;
 
-      rfbRef.current = new RFB(containerRef.current, url, {
+      const rfb = new RFB(containerRef.current, url, {
         shared: true,
       });
+      rfbRef.current = rfb;
 
-      rfbRef.current.addEventListener('connect', () => {
+      rfb.addEventListener('connect', () => {
         setIsConnected(true);
         setIsConnecting(false);
         setStatus('VNC 连接成功');
         toast.success('VNC 连接成功，您可以在下方窗口中完成 QQ 登录');
       });
 
-      rfbRef.current.addEventListener('disconnect', (e: any) => {
+      rfb.addEventListener('disconnect', (e: any) => {
         setIsConnected(false);
         setIsConnecting(false);
         if (e.detail.clean) {
@@ -45,14 +46,14 @@ export default function VNCLogin () {
         }
       });
 
-      rfbRef.current.addEventListener('error', () => {
+      rfb.addEventListener('error', () => {
         setIsConnected(false);
         setIsConnecting(false);
         setStatus('VNC 连接失败');
         toast.error('VNC 连接失败，请检查服务状态');
       });
 
-      rfbRef.current.addEventListener('status', (e: any) => {
+      rfb.addEventListener('status', (e: any) => {
         setStatus(e.detail.text);
       });
     } catch (error) {
