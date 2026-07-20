@@ -21,6 +21,7 @@ import path from 'path';
 import fs from 'fs';
 import os from 'os';
 import { createHash } from 'node:crypto';
+import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { LoginListItem, NodeIKernelLoginService } from 'napcat-core/services';
 import qrcode from 'napcat-qrcode/lib/main';
 import { NapCatAdapterManager } from 'napcat-adapter';
@@ -42,13 +43,117 @@ import { statusHelperSubscription } from '@/napcat-core/helper/status';
 import { applyPendingUpdates } from '@/napcat-webui-backend/src/api/UpdateNapCat';
 import { connectToNamedPipe } from './pipe';
 
+let xvfbProcess: ChildProcessWithoutNullStreams | null = null;
+let x11vncProcess: ChildProcessWithoutNullStreams | null = null;
+
+async function startVNCService (logger: LogWrapper): Promise<boolean> {
+  if (os.platform() !== 'linux') {
+    logger.log('[NapCat] [VNC] VNC service is only supported on Linux');
+    return false;
+  }
+
+  const vncEnabled = process.env['NAPCAT_ENABLE_VNC'] !== '0';
+  if (!vncEnabled) {
+    logger.log('[NapCat] [VNC] VNC service is disabled');
+    return false;
+  }
+
+  try {
+    const displayNum = parseInt(process.env['NAPCAT_VNC_DISPLAY'] || '99', 10);
+    const vncPort = parseInt(process.env['NAPCAT_VNC_PORT'] || '5900', 10);
+    const screenWidth = parseInt(process.env['NAPCAT_VNC_WIDTH'] || '1280', 10);
+    const screenHeight = parseInt(process.env['NAPCAT_VNC_HEIGHT'] || '720', 10);
+    const screenDepth = parseInt(process.env['NAPCAT_VNC_DEPTH'] || '24', 10);
+
+    xvfbProcess = spawn('Xvfb', [
+      `:${displayNum}`,
+      '-screen', `0`, `${screenWidth}x${screenHeight}x${screenDepth}`,
+      '-ac',
+      '-noreset',
+    ]);
+
+    xvfbProcess.stdout.on('data', (data) => {
+      logger.log('[NapCat] [VNC] Xvfb stdout:', data.toString().trim());
+    });
+
+    xvfbProcess.stderr.on('data', (data) => {
+      logger.log('[NapCat] [VNC] Xvfb stderr:', data.toString().trim());
+    });
+
+    xvfbProcess.on('close', (code) => {
+      logger.log(`[NapCat] [VNC] Xvfb process closed with code ${code}`);
+      xvfbProcess = null;
+    });
+
+    await sleep(2000);
+
+    process.env['DISPLAY'] = `:${displayNum}`;
+
+    x11vncProcess = spawn('x11vnc', [
+      '-display', `:${displayNum}`,
+      '-rfbport', `${vncPort}`,
+      '-forever',
+      '-shared',
+      '-listen', '127.0.0.1',
+      '-bg',
+    ]);
+
+    x11vncProcess.stdout.on('data', (data) => {
+      logger.log('[NapCat] [VNC] x11vnc stdout:', data.toString().trim());
+    });
+
+    x11vncProcess.stderr.on('data', (data) => {
+      logger.log('[NapCat] [VNC] x11vnc stderr:', data.toString().trim());
+    });
+
+    x11vncProcess.on('close', (code) => {
+      logger.log(`[NapCat] [VNC] x11vnc process closed with code ${code}`);
+      x11vncProcess = null;
+    });
+
+    await sleep(1000);
+
+    logger.log(`[NapCat] [VNC] VNC service started on display :${displayNum}, port ${vncPort}`);
+    return true;
+  } catch (error) {
+    logger.logError('[NapCat] [VNC] Failed to start VNC service:', error);
+    return false;
+  }
+}
+
+function stopVNCService (logger: LogWrapper): void {
+  if (x11vncProcess) {
+    logger.log('[NapCat] [VNC] Stopping x11vnc...');
+    x11vncProcess.kill();
+    x11vncProcess = null;
+  }
+  if (xvfbProcess) {
+    logger.log('[NapCat] [VNC] Stopping Xvfb...');
+    xvfbProcess.kill();
+    xvfbProcess = null;
+  }
+}
+
 // NapCat Shell App ES 入口文件
 async function handleUncaughtExceptions (logger: LogWrapper) {
   process.on('uncaughtException', (err) => {
     logger.logError('[NapCat] [Error] Unhandled Exception:', err.message);
+    stopVNCService(logger);
   });
   process.on('unhandledRejection', (reason) => {
     logger.logError('[NapCat] [Error] unhandledRejection:', reason);
+    stopVNCService(logger);
+  });
+  process.on('exit', () => {
+    stopVNCService(logger);
+  });
+  process.on('SIGINT', () => {
+    stopVNCService(logger);
+    process.exit(0);
+  });
+  process.on('SIGTERM', () => {
+    stopVNCService(logger);
+    process.exit(0);
   });
 }
 
@@ -596,6 +701,8 @@ export async function NCoreInitShell () {
   }
   handleUncaughtExceptions(logger);
   await applyPendingUpdates(pathWrapper, logger);
+
+  await startVNCService(logger);
 
   // 提前初始化 Native 模块（在登录前加载）
   const basicInfoWrapper = new QQBasicInfoWrapper({ logger });

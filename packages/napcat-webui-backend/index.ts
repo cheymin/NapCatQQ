@@ -18,7 +18,7 @@ import { terminalManager } from '@/napcat-webui-backend/src/terminal/terminal_ma
 import multer from 'multer';
 import * as net from 'node:net';
 import { WebUiDataRuntime } from './src/helper/Data';
-import { existsSync, readFileSync } from 'node:fs'; // 引入multer用于错误捕获
+import { existsSync, readFileSync } from 'node:fs';
 import { ILogWrapper } from 'napcat-common/src/log-interface';
 import { ISubscription } from 'napcat-common/src/subscription-interface';
 import { IStatusHelperSubscription } from '@/napcat-common/src/status-interface';
@@ -470,11 +470,33 @@ export async function InitWebUi (logger: ILogWrapper, pathWrapper: NapCatPathWra
   server.on('upgrade', (request, socket, head) => {
     const url = new URL(request.url || '', `http://${request.headers.host}`);
 
-    // 检查是否是调试 WebSocket 连接
     if (url.pathname.startsWith('/api/Debug/ws')) {
       handleDebugWebSocket(request, socket, head);
+    } else if (url.pathname.startsWith('/vnc/ws')) {
+      const vncHost = process.env['NAPCAT_VNC_HOST'] || '127.0.0.1';
+      const vncPort = parseInt(process.env['NAPCAT_VNC_PORT'] || '5900', 10);
+
+      const vncSocket = net.createConnection({ host: vncHost, port: vncPort }, () => {
+        socket.write('HTTP/1.1 101 Switching Protocols\r\n');
+        socket.write('Upgrade: websocket\r\n');
+        socket.write('Connection: Upgrade\r\n');
+        socket.write(`Sec-WebSocket-Accept: ${request.headers['sec-websocket-accept']}\r\n`);
+        socket.write('\r\n');
+
+        socket.pipe(vncSocket);
+        vncSocket.pipe(socket);
+      });
+
+      vncSocket.on('error', (err) => {
+        logger.logError('[NapCat] [VNC] Failed to connect to VNC server:', err);
+        socket.destroy();
+      });
+
+      socket.on('error', (err) => {
+        logger.logError('[NapCat] [VNC] Client socket error:', err);
+        vncSocket.destroy();
+      });
     } else {
-      // 默认为终端 WebSocket
       terminalManager.initialize(request, socket, head, logger);
     }
   });

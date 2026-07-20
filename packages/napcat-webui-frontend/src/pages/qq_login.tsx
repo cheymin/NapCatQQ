@@ -17,6 +17,7 @@ import { title } from '@/components/primitives';
 import PasswordLogin from '@/components/password_login';
 import QrCodeLogin from '@/components/qr_code_login';
 import QuickLogin from '@/components/quick_login';
+import VNCLogin from '@/components/vnc_login';
 import type { QQItem } from '@/components/quick_login';
 import { ThemeSwitch } from '@/components/theme-switch';
 import type { CaptchaCallbackData } from '@/components/tencent_captcha';
@@ -370,6 +371,9 @@ export default function QQLoginPage () {
                     qrcode={qrcode}
                     onRefresh={onRefreshQRCode}
                   />
+                </Tab>
+                <Tab key='vnc' title='VNC 登录'>
+                  <VNCLogin />
                 </Tab>
               </Tabs>
               <Button

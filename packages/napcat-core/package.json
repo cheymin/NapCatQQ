@@ -27,7 +27,8 @@
     "napcat-image-size": "workspace:*",
     "napcat-protobuf": "workspace:*",
     "reflect-metadata": "^0.2.2",
-    "winston": "^3.17.0"
+    "winston": "^3.17.0",
+    "ws": "^8.18.3"
   },
   "devDependencies": {
     "@types/node": "^22.0.1"
