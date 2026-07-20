@@ -10,11 +10,62 @@ permissions:
   packages: write
 
 jobs:
-  docker:
+  build-shell:
+    name: Build NapCat.Shell
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Use Node.js 20.x
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20.x
+
+      - name: Install pnpm
+        run: npm i -g pnpm
+
+      - name: Install dependencies
+        run: pnpm i
+
+      - name: Build frontend
+        run: pnpm --filter napcat-webui-frontend run build || exit 1
+
+      - name: Build shell
+        run: pnpm run build:shell
+
+      - name: Build builtin plugin
+        run: pnpm --filter napcat-plugin-builtin run build || exit 1
+
+      - name: Prepare shell dist
+        run: |
+          cd packages/napcat-shell/dist
+          npm install --omit=dev
+          rm ./package-lock.json || exit 0
+
+      - name: Zip shell
+        run: |
+          cd packages/napcat-shell/dist
+          zip -qr ../../../NapCat.Shell.zip .
+
+      - name: Upload NapCat.Shell.zip
+        uses: actions/upload-artifact@v6
+        with:
+          name: NapCat.Shell.zip
+          path: NapCat.Shell.zip
+
+  docker:
+    needs: build-shell
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download NapCat.Shell.zip
+        uses: actions/download-artifact@v7
+        with:
+          name: NapCat.Shell.zip
+          path: .
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
