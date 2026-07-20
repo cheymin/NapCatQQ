@@ -23,6 +23,7 @@ import { ILogWrapper } from 'napcat-common/src/log-interface';
 import { ISubscription } from 'napcat-common/src/subscription-interface';
 import { IStatusHelperSubscription } from '@/napcat-common/src/status-interface';
 import { handleDebugWebSocket } from '@/napcat-webui-backend/src/api/Debug';
+import { WebSocketServer } from 'ws';
 import compression from 'compression';
 import { napCatVersion } from 'napcat-common/src/version';
 import { fileURLToPath } from 'node:url';
@@ -477,24 +478,35 @@ export async function InitWebUi (logger: ILogWrapper, pathWrapper: NapCatPathWra
       const vncPort = parseInt(process.env['NAPCAT_VNC_PORT'] || '5900', 10);
 
       const vncSocket = net.createConnection({ host: vncHost, port: vncPort }, () => {
-        socket.write('HTTP/1.1 101 Switching Protocols\r\n');
-        socket.write('Upgrade: websocket\r\n');
-        socket.write('Connection: Upgrade\r\n');
-        socket.write(`Sec-WebSocket-Accept: ${request.headers['sec-websocket-accept']}\r\n`);
-        socket.write('\r\n');
+        const wss = new WebSocketServer({ noServer: true });
+        wss.handleUpgrade(request, socket, head, (ws) => {
+          ws.binaryType = 'arraybuffer';
 
-        socket.pipe(vncSocket);
-        vncSocket.pipe(socket);
+          ws.on('message', (data) => {
+            if (vncSocket.writable) {
+              vncSocket.write(Buffer.from(data as ArrayBuffer));
+            }
+          });
+
+          vncSocket.on('data', (chunk) => {
+            if (ws.readyState === ws.OPEN) {
+              ws.send(chunk);
+            }
+          });
+
+          ws.on('close', () => {
+            vncSocket.destroy();
+          });
+
+          vncSocket.on('close', () => {
+            ws.close();
+          });
+        });
       });
 
       vncSocket.on('error', (err) => {
         logger.logError('[NapCat] [VNC] Failed to connect to VNC server:', err);
         socket.destroy();
-      });
-
-      socket.on('error', (err) => {
-        logger.logError('[NapCat] [VNC] Client socket error:', err);
-        vncSocket.destroy();
       });
     } else {
       terminalManager.initialize(request, socket, head, logger);
