@@ -59,35 +59,43 @@ async function startVNCService (logger: LogWrapper): Promise<boolean> {
   }
 
   try {
-    const displayNum = parseInt(process.env['NAPCAT_VNC_DISPLAY'] || '99', 10);
+    const existingDisplay = process.env['DISPLAY'];
+    const displayNum = existingDisplay
+      ? parseInt(existingDisplay.replace(':', ''), 10)
+      : parseInt(process.env['NAPCAT_VNC_DISPLAY'] || '99', 10);
     const vncPort = parseInt(process.env['NAPCAT_VNC_PORT'] || '5900', 10);
-    const screenWidth = parseInt(process.env['NAPCAT_VNC_WIDTH'] || '1280', 10);
-    const screenHeight = parseInt(process.env['NAPCAT_VNC_HEIGHT'] || '720', 10);
-    const screenDepth = parseInt(process.env['NAPCAT_VNC_DEPTH'] || '24', 10);
 
-    xvfbProcess = spawn('Xvfb', [
-      `:${displayNum}`,
-      '-screen', `0`, `${screenWidth}x${screenHeight}x${screenDepth}`,
-      '-ac',
-      '-noreset',
-    ]);
+    if (!existingDisplay) {
+      const screenWidth = parseInt(process.env['NAPCAT_VNC_WIDTH'] || '1280', 10);
+      const screenHeight = parseInt(process.env['NAPCAT_VNC_HEIGHT'] || '720', 10);
+      const screenDepth = parseInt(process.env['NAPCAT_VNC_DEPTH'] || '24', 10);
 
-    xvfbProcess.stdout.on('data', (data) => {
-      logger.log('[NapCat] [VNC] Xvfb stdout:', data.toString().trim());
-    });
+      xvfbProcess = spawn('Xvfb', [
+        `:${displayNum}`,
+        '-screen', `0`, `${screenWidth}x${screenHeight}x${screenDepth}`,
+        '-ac',
+        '-noreset',
+      ]);
 
-    xvfbProcess.stderr.on('data', (data) => {
-      logger.log('[NapCat] [VNC] Xvfb stderr:', data.toString().trim());
-    });
+      xvfbProcess.stdout.on('data', (data) => {
+        logger.log('[NapCat] [VNC] Xvfb stdout:', data.toString().trim());
+      });
 
-    xvfbProcess.on('close', (code) => {
-      logger.log(`[NapCat] [VNC] Xvfb process closed with code ${code}`);
-      xvfbProcess = null;
-    });
+      xvfbProcess.stderr.on('data', (data) => {
+        logger.log('[NapCat] [VNC] Xvfb stderr:', data.toString().trim());
+      });
 
-    await sleep(2000);
+      xvfbProcess.on('close', (code) => {
+        logger.log(`[NapCat] [VNC] Xvfb process closed with code ${code}`);
+        xvfbProcess = null;
+      });
 
-    process.env['DISPLAY'] = `:${displayNum}`;
+      await sleep(2000);
+      process.env['DISPLAY'] = `:${displayNum}`;
+      logger.log(`[NapCat] [VNC] Xvfb started on display :${displayNum}`);
+    } else {
+      logger.log(`[NapCat] [VNC] Using existing display ${existingDisplay}`);
+    }
 
     x11vncProcess = spawn('x11vnc', [
       '-display', `:${displayNum}`,
