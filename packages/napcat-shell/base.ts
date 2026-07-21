@@ -104,6 +104,12 @@ async function startVNCService (logger: LogWrapper): Promise<boolean> {
       '-shared',
       '-listen', '127.0.0.1',
       '-nopw',
+      '-noxdamage',
+      '-noxfixes',
+      '-noscr',
+      '-nowf',
+      '-cursor', 'arrow',
+      '-repeat',
     ]);
 
     x11vncProcess.stdout.on('data', (data) => {

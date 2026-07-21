@@ -11,9 +11,15 @@ export default function VNCLogin () {
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [status, setStatus] = useState('');
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const retryCountRef = useRef(0);
 
   const connectVNC = useCallback(async () => {
     if (!containerRef.current) return;
+    if (rfbRef.current) {
+      rfbRef.current.disconnect();
+      rfbRef.current = null;
+    }
 
     setIsConnecting(true);
     setStatus('正在连接 VNC...');
@@ -25,6 +31,7 @@ export default function VNCLogin () {
 
       const rfb = new RFB(containerRef.current, url, {
         shared: true,
+        wsProtocols: ['binary'],
       });
       rfbRef.current = rfb;
 
@@ -32,17 +39,24 @@ export default function VNCLogin () {
         setIsConnected(true);
         setIsConnecting(false);
         setStatus('VNC 连接成功');
+        retryCountRef.current = 0;
         toast.success('VNC 连接成功，您可以在下方窗口中完成 QQ 登录');
       });
 
       rfb.addEventListener('disconnect', (e: any) => {
         setIsConnected(false);
         setIsConnecting(false);
+        rfbRef.current = null;
         if (e.detail.clean) {
           setStatus('VNC 连接已断开');
         } else {
-          setStatus('VNC 连接异常断开');
-          toast.error('VNC 连接异常断开，请检查服务状态');
+          setStatus('VNC 连接异常断开，正在重连...');
+          retryCountRef.current++;
+          const delay = Math.min(3000 * retryCountRef.current, 15000);
+          if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+          reconnectTimerRef.current = setTimeout(() => {
+            connectVNC();
+          }, delay);
         }
       });
 
@@ -50,7 +64,6 @@ export default function VNCLogin () {
         setIsConnected(false);
         setIsConnecting(false);
         setStatus('VNC 连接失败');
-        toast.error('VNC 连接失败，请检查服务状态');
       });
 
       rfb.addEventListener('status', (e: any) => {
@@ -64,6 +77,10 @@ export default function VNCLogin () {
   }, []);
 
   const disconnectVNC = useCallback(() => {
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
     if (rfbRef.current) {
       rfbRef.current.disconnect();
       rfbRef.current = null;
@@ -110,7 +127,7 @@ export default function VNCLogin () {
 
       <motion.div
         ref={containerRef}
-        className='relative w-full h-[480px] bg-black rounded-lg overflow-hidden border border-border'
+        className='relative w-full h-[600px] bg-black rounded-lg overflow-hidden border border-border'
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.3 }}
@@ -135,7 +152,7 @@ export default function VNCLogin () {
       </motion.div>
 
       <div className='text-xs text-muted-foreground text-center'>
-        提示：在上方窗口中完成 QQ 登录后，刷新页面或等待自动跳转
+        提示：在上方窗口中完成 QQ 登录后，将自动跳转到控制台
       </div>
     </CardBody>
   );
